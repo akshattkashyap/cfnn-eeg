@@ -1,0 +1,14 @@
+data/
+cache/
+runs/
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.dat
+*.h5
+*.keras
+*.joblib
+*.npz
+*.zip
+.verification/

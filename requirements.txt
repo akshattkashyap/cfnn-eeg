@@ -1,0 +1,7 @@
+# Colab supplies TensorFlow; pip keeps an installed compatible version.
+tensorflow>=2.16,<3
+numpy>=1.26,<3
+scipy>=1.11,<2
+scikit-learn>=1.4,<2
+joblib>=1.3,<2
+xlrd>=2.0,<3
