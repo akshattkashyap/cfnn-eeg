@@ -9,8 +9,9 @@ import joblib
 import numpy as np
 from sklearn.preprocessing import StandardScaler
 
-from .data import binarize, load_deap
+from .data import binarize, load_data
 from .models import build_model, tf
+from .tsk import initialize_htsk
 
 
 def balanced_rows(y, trial, training_rows, size=32, seed=42):
@@ -53,12 +54,15 @@ def load_training_data(run_dir, fold=0, data_dir=None, cache_dir=None):
     if not (run_dir / "summary.json").is_file():
         raise ValueError("--run-dir must be a completed experiment containing summary.json")
     config = json.loads((run_dir / "config.json").read_text(encoding="utf-8"))
+    config.setdefault("stride", 0)  # Runs saved before overlapping-window support.
+    config.setdefault("dataset", "deap")
+    config.setdefault("dreamer_last_seconds", 0.0)
     if data_dir is not None:
         config["data_dir"] = str(data_dir)
     if cache_dir is not None:
         config["cache_dir"] = str(cache_dir)
     args = argparse.Namespace(**config)
-    X, R, subject, trial = load_deap(args)
+    X, R, subject, trial = load_data(args)
     if X.shape != (len(R), args.feature_dim) or not np.isfinite(X).all():
         raise ValueError("Invalid feature matrix")
     with np.load(run_dir / "row_metadata.npz", allow_pickle=False) as saved, \
@@ -111,12 +115,15 @@ def batch_scores(model, x, y):
     return result
 
 
-def memorize_batch(kind, x, y, agg, learning_rate, seed, steps, clipnorm=0.0, log_every=100):
+def memorize_batch(kind, x, y, agg, learning_rate, seed, steps, clipnorm=0.0, log_every=100,
+                   htsk_rules=16, htsk_init_sigma=1.0):
     if tf is None:
         raise RuntimeError("TensorFlow is required for memorization checks")
     tf.keras.backend.clear_session()
     tf.keras.utils.set_random_seed(seed)
-    model = build_model(kind, x.shape[1], agg)
+    model = build_model(kind, x.shape[1], agg, htsk_rules=htsk_rules, htsk_init_sigma=htsk_init_sigma)
+    if kind == "htsk":
+        initialize_htsk(model, x[..., 0], max_samples=len(x), seed=seed)
     optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate,
                                          **({"clipnorm": clipnorm} if clipnorm > 0 else {}))
     loss_fn = tf.keras.losses.SparseCategoricalCrossentropy()

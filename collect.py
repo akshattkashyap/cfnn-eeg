@@ -17,9 +17,15 @@ def collect(root):
             folds = result["folds"]
             rows.append({
                 "run": str(path.parent.relative_to(root)), "model": args["model"],
+                "dataset": args.get("dataset", "deap"),
                 "split": args["split"], "cv_folds": args["cv_folds"],
                 "window_samples": args["window_samples"], "feature_dim": args["feature_dim"],
                 "pad_mode": args["pad_mode"], "fuzzy_agg": args["fuzzy_agg"],
+                "stride": args.get("stride", 0) or args["window_samples"],
+                "dreamer_last_seconds": args.get("dreamer_last_seconds", 0.0)
+                    if args.get("dataset", "deap") == "dreamer" else None,
+                "htsk_rules": args.get("htsk_rules", 16) if args["model"] == "htsk" else None,
+                "htsk_init_sigma": args.get("htsk_init_sigma", 1.0) if args["model"] == "htsk" else None,
                 "threshold": args["threshold"], "threshold_op": args["threshold_op"],
                 "seed": args["seed"], "target": target,
                 "window_acc": result["window_accuracy_mean"],

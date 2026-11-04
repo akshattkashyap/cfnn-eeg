@@ -17,7 +17,7 @@ def band_masks(nfft: int):
 
 
 def trial_features(eeg, window, stride, nfft, taper, feature_dim, pad_mode, masks):
-    """eeg (14, 7680) -> (n_win, feature_dim). Channel-major, band-minor.
+    """eeg (14, samples) -> (n_win, feature_dim). Channel-major, band-minor.
     stride=window means non-overlapping; stride<window means overlapping.
     """
     if eeg.ndim != 2 or eeg.shape[0] != len(CH0):

@@ -69,7 +69,7 @@ class DiagnosticTests(unittest.TestCase):
             np.savez(root / "row_metadata.npz", ratings=R, subject=subject, trial=trial)
             np.savez(root / "split_f0.npz", train=np.arange(6), validation=np.arange(6, 9), test=np.arange(9, 12))
             joblib.dump(StandardScaler().fit(X[:6]), root / "scaler_f0.joblib")
-            with patch.object(diagnostics, "load_deap", return_value=(X, R, subject, trial)):
+            with patch.object(diagnostics, "load_data", return_value=(X, R, subject, trial)):
                 result = diagnostics.load_training_data(root)
                 np.testing.assert_array_equal(result[5], np.arange(6))
                 joblib.dump(StandardScaler().fit(X), root / "scaler_f0.joblib")

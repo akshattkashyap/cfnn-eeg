@@ -3,15 +3,27 @@ from __future__ import annotations
 
 import joblib
 import numpy as np
+from pathlib import Path
 from sklearn.model_selection import train_test_split
 
 from .models import build_model, tf
+from .tsk import initialize_htsk
 
 
 def train_neural(kind, args, xtr, ytr, xva, yva, xte, ckpt):
     tf.keras.backend.clear_session()
     tf.keras.utils.set_random_seed(args.seed)
-    model = build_model(kind, args.feature_dim, args.fuzzy_agg)
+    model = build_model(kind, args.feature_dim, args.fuzzy_agg,
+                        htsk_rules=getattr(args, "htsk_rules", 16),
+                        htsk_init_sigma=getattr(args, "htsk_init_sigma", 1.0))
+    initialization = {}
+    if kind == "htsk":
+        centers, positions, initialization = initialize_htsk(
+            model, xtr, getattr(args, "htsk_init_max_samples", 30000), args.seed)
+        init_path = Path(str(ckpt).replace(".weights.h5", "_initialization.npz"))
+        np.savez_compressed(init_path, centers=centers, training_positions=positions)
+        print(f"HTSK: {initialization['rules']} rules initialized from "
+              f"{initialization['initialization_rows_used']} training rows", flush=True)
     opt = tf.keras.optimizers.Adam(learning_rate=args.learning_rate,
                                    **({"clipnorm": args.clipnorm} if args.clipnorm > 0 else {}))
     model.compile(opt, loss=tf.keras.losses.SparseCategoricalCrossentropy(), metrics=["accuracy"])
@@ -31,6 +43,7 @@ def train_neural(kind, args, xtr, ytr, xva, yva, xte, ckpt):
     model.save(str(ckpt).replace(".weights.h5", ".keras"))
     probs = model.predict(xte[..., None], batch_size=1024, verbose=0)
     return probs, {"params": int(model.count_params()),
+                   **({"htsk_initialization": initialization} if initialization else {}),
                    "epochs_run": len(h.history["loss"]),
                    "best_epoch": int(np.argmin(h.history["val_loss"]) + 1),
                    "best_val_loss": float(min(h.history["val_loss"])),

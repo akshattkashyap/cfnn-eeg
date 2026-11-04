@@ -25,6 +25,7 @@ def parse_args(argv=None):
     parser.add_argument("--models", nargs="+", choices=sorted(NEURAL), default=["cnn", "cfnn"])
     parser.add_argument("--learning-rates", nargs="+", type=float, default=[0.01, 0.001])
     parser.add_argument("--batch-size", type=int, default=32)
+    parser.add_argument("--htsk-rules", type=int, help="override rule count for an HTSK diagnostic")
     parser.add_argument("--steps", type=int, default=1000, help="Updates of the same batch, not full-data epochs")
     parser.add_argument("--check-only", action="store_true", help="Check artifacts/features; no model fitting")
     args = parser.parse_args(argv)
@@ -32,6 +33,8 @@ def parse_args(argv=None):
         parser.error("--batch-size must be even and >=4")
     if args.steps < 1 or args.fold < 0:
         parser.error("--steps must be positive and --fold nonnegative")
+    if args.htsk_rules is not None and args.htsk_rules < 2:
+        parser.error("--htsk-rules must be >=2")
     if not all(np.isfinite(lr) and lr > 0 for lr in args.learning_rates):
         parser.error("Learning rates must be finite and positive")
     return args
@@ -45,7 +48,11 @@ def main(argv=None):
     out.mkdir(parents=True, exist_ok=False)
     args, X, R, subject, trial, train, scaler = load_training_data(
         options.run_dir, options.fold, options.data_dir, options.cache_dir)
+    n_rules = options.htsk_rules if options.htsk_rules is not None else getattr(args, "htsk_rules", 16)
+    if "htsk" in options.models and n_rules > options.batch_size and not options.check_only:
+        raise ValueError("For a tiny-batch HTSK diagnostic, rules must not exceed batch size")
     report = {"reference_run": str(options.run_dir.resolve()), "environment": environment_info(),
+              "dataset": getattr(args, "dataset", "deap"),
               "options": {k: str(v) if isinstance(v, Path) else v for k, v in vars(options).items()},
               "feature_settings": {k: getattr(args, k) for k in
                   ("window_samples", "nfft", "taper", "feature_dim", "pad_mode", "fuzzy_agg")},
@@ -71,7 +78,9 @@ def main(argv=None):
         for kind in options.models:
             for lr in options.learning_rates:
                 experiment = memorize_batch(kind, x, y[rows], args.fuzzy_agg, lr,
-                                             args.seed, options.steps, args.clipnorm)
+                                             args.seed, options.steps, args.clipnorm,
+                                             htsk_rules=n_rules,
+                                             htsk_init_sigma=getattr(args, "htsk_init_sigma", 1.0))
                 result["runs"].append(experiment)
                 write_json(out / "diagnostics.json", report)
     print("Saved", (out / "diagnostics.json").resolve(), flush=True)

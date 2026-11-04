@@ -11,6 +11,8 @@ except ImportError:  # sklearn-only models (svm/knn) still work without TensorFl
 
 
 if tf is not None:
+    # Register HTSK during import as well, so importing cfnn.models can load .keras files.
+    from .tsk import HTSKClassifier
 
     @tf.keras.utils.register_keras_serializable(package="cfnn")
     class GaussianFuzzification(tf.keras.layers.Layer):
@@ -75,11 +77,15 @@ if tf is not None:
             return c
 
 
-def build_model(kind, length, agg="mean_exp"):
+def build_model(kind, length, agg="mean_exp", *, htsk_rules=16, htsk_init_sigma=1.0):
     if tf is None:
         raise RuntimeError("TensorFlow is required: pip install -r requirements.txt")
     L = tf.keras.layers
     inp = L.Input(shape=(length, 1), name="features")
+    if kind == "htsk":
+        x = L.Flatten(name="flatten")(inp)
+        x = HTSKClassifier(n_rules=htsk_rules, init_sigma=htsk_init_sigma, name="htsk")(x)
+        return tf.keras.Model(inp, L.Softmax(name="out")(x), name=kind)
     if kind == "bilstm":
         x = L.Bidirectional(L.LSTM(32))(inp)
         return tf.keras.Model(inp, L.Dense(2, activation="softmax")(x), name=kind)
@@ -114,7 +120,8 @@ def build_model(kind, length, agg="mean_exp"):
 def self_test(args):
     if args.model not in NEURAL:
         raise SystemExit("self-test is for neural models")
-    m = build_model(args.model, args.feature_dim, args.fuzzy_agg)
+    m = build_model(args.model, args.feature_dim, args.fuzzy_agg,
+                    htsk_rules=args.htsk_rules, htsk_init_sigma=args.htsk_init_sigma)
     m.summary()
     x = np.random.default_rng(args.seed).normal(size=(8, args.feature_dim, 1)).astype("float32")
     y = np.random.default_rng(1).integers(0, 2, 8)
@@ -128,4 +135,9 @@ def self_test(args):
     if args.model == "cfnn":
         want = {73: 11186, 70: 11058}[args.feature_dim]
         assert m.count_params() == want, (m.count_params(), want)
+    if args.model == "htsk":
+        want = args.htsk_rules * (4 * args.feature_dim + 2)
+        assert m.count_params() == want, (m.count_params(), want)
+        weights = m.get_layer("htsk").rule_weights(tf.constant(x[..., 0])).numpy()
+        np.testing.assert_allclose(weights.sum(1), 1.0, atol=1e-6)
     print("SELF-TEST OK | params:", m.count_params(), "| loss:", float(loss))

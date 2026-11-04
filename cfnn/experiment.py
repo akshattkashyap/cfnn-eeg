@@ -10,7 +10,7 @@ from sklearn.preprocessing import StandardScaler
 
 from .artifacts import environment_info, write_json
 from .constants import LABEL_COLS, NEURAL
-from .data import binarize, feature_manifest, load_deap, source_files
+from .data import binarize, feature_manifest, load_data, source_files
 from .metrics import metrics, trial_level
 from .models import self_test, tf
 from .splits import make_splits, split_audit
@@ -35,20 +35,21 @@ def run(args):
     write_json(out / "environment.json", environment_info())
     write_json(out / "feature_manifest.json", feature_manifest(args, source_files(args)))
 
-    X, R, subj, trial = load_deap(args)
+    X, R, subj, trial = load_data(args)
     print(f"Feature matrix {X.shape}; subjects {len(np.unique(subj))}; trials {len(np.unique(trial))}")
     if args.split == "random":
         print("WARNING: random window-level split; windows from one trial can be in train AND test "
-              "(paper-style protocol, expected to be optimistic).")
+              "(window-level scores can be optimistic).")
     splits = make_splits(args, subj, trial)
     targets = list(LABEL_COLS) if args.target == "both" else [args.target]
     folds = {t: [] for t in targets}
     np.savez_compressed(out / "row_metadata.npz", ratings=R, subject=subj, trial=trial)
-    preparation = {"feature_matrix_shape": list(X.shape),
+    rating_max = 5 if args.dataset == "dreamer" else 9
+    preparation = {"dataset": args.dataset, "feature_matrix_shape": list(X.shape),
                    "rating_ranges": {t: {"min": float(R[:, col].min()),
                        "max": float(R[:, col].max()),
                        "trials_outside_nominal_range": int(len(np.unique(trial[
-                           (R[:, col] < 1) | (R[:, col] > 9)])))} for t, col in LABEL_COLS.items()},
+                           (R[:, col] < 1) | (R[:, col] > rating_max)])))} for t, col in LABEL_COLS.items()},
                    "class_counts": {t: np.bincount(binarize(R[:, LABEL_COLS[t]],
                        args.threshold, args.threshold_op), minlength=2).tolist() for t in targets},
                    "folds": []}
@@ -97,6 +98,12 @@ def run(args):
 
     summary = {"paper_doi": "10.1038/s41598-024-60977-9", "reconstruction_not_original": True,
                "args": vars(args), "feature_matrix_shape": list(X.shape), "results": {}}
+    if args.dataset == "dreamer":
+        summary["dataset_reference"] = {"name": "DREAMER", "url": "https://zenodo.org/records/546113"}
+    if args.model == "htsk":
+        summary["model_reference"] = {
+            "doi": "10.1109/IJCNN52387.2021.9534265", "arxiv": "2102.04271",
+            "implementation": "Independent TensorFlow first-order HTSK baseline; not the CFNN architecture"}
     for tgt, fl in folds.items():
         w = [f["window"]["accuracy"] for f in fl]
         t = [f["trial"]["accuracy"] for f in fl]

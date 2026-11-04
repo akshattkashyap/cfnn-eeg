@@ -28,12 +28,12 @@ class FeatureTests(unittest.TestCase):
         time = np.arange(1024) / constants.FS
         eeg = np.sin(2 * np.pi * freqs[:, None] * time)
         masks = features.band_masks(512)
-        x = features.trial_features(eeg, 512, 512, "hann", 73, "zero", masks)
+        x = features.trial_features(eeg, 512, 512, 512, "hann", 73, "zero", masks)
         self.assertEqual(x.shape, (2, 73))
         np.testing.assert_array_equal(x[:, -3:], 0)
         expected = np.resize(np.arange(5), 14)
         np.testing.assert_array_equal(x[0, :70].reshape(14, 5).argmax(1), expected)
-        summary = features.trial_features(eeg, 512, 512, "hann", 73, "summary", masks)
+        summary = features.trial_features(eeg, 512, 512, 512, "hann", 73, "summary", masks)
         np.testing.assert_allclose(summary[:, -3:], x[:, :70].reshape(2, 14, 5).mean(1)[:, [0, 1, 4]], atol=1e-5)
 
     def test_paper_window_sweep_is_finite(self):
@@ -41,7 +41,7 @@ class FeatureTests(unittest.TestCase):
         for window in [4, 8, 16, 32, 64, 128, 512]:
             with self.subTest(window=window):
                 nfft = max(window, 128)
-                x = features.trial_features(eeg, window, nfft, "hann", 70, "zero", features.band_masks(nfft))
+                x = features.trial_features(eeg, window, window, nfft, "hann", 70, "zero", features.band_masks(nfft))
                 self.assertEqual(x.shape, (7680 // window, 70))
                 self.assertTrue(np.isfinite(x).all())
 
@@ -68,7 +68,7 @@ class FeatureTests(unittest.TestCase):
             self.assertEqual(len(np.unique(trial)), 160)
             np.testing.assert_array_equal(ratings[:15, 0], 3)
             np.testing.assert_array_equal(ratings[15:30, 0], 0)
-            expected = features.trial_features(data[0, constants.CH0, 384:], 512, 512, "hann", 73,
+            expected = features.trial_features(data[0, constants.CH0, 384:], 512, 512, 512, "hann", 73,
                                             "zero", features.band_masks(512))
             np.testing.assert_allclose(x[:15], expected)
             with patch.object(dataset.pickle, "load", side_effect=AssertionError("cache miss")):
@@ -139,7 +139,7 @@ class SplitAndMetricTests(unittest.TestCase):
             ratings = np.tile([[3, 6], [7, 4]], (96, 1)).astype(np.float32)
             subject, trial = np.repeat(np.arange(8), 24), np.repeat(np.arange(48), 4)
             with patch.object(experiment, "source_files", return_value=[]), \
-                 patch.object(experiment, "load_deap", return_value=(x, ratings, subject, trial)), \
+                 patch.object(experiment, "load_data", return_value=(x, ratings, subject, trial)), \
                  patch.object(experiment, "train_neural") as neural, \
                  patch.object(experiment, "train_sklearn") as baseline, \
                  patch.object(experiment.StandardScaler, "fit") as scaler:
@@ -169,7 +169,7 @@ class SplitAndMetricTests(unittest.TestCase):
                 return np.full((len(xte), 2), .5), {"train_rows_used": len(xtr)}
 
             with patch.object(experiment, "source_files", return_value=[]), \
-                 patch.object(experiment, "load_deap", return_value=(x, ratings, subject, trial)), \
+                 patch.object(experiment, "load_data", return_value=(x, ratings, subject, trial)), \
                  patch.object(experiment, "train_sklearn", side_effect=fake_train) as trainer:
                 experiment.run(args)
                 self.assertEqual(trainer.call_count, 2)

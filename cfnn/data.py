@@ -1,4 +1,4 @@
-"""DEAP file loading, feature caching, provenance and label thresholds."""
+"""Dataset dispatch, DEAP loading, feature caching and label thresholds."""
 from __future__ import annotations
 
 import hashlib
@@ -9,11 +9,15 @@ from pathlib import Path
 
 import numpy as np
 
-from .constants import BANDS, BASELINE, CACHE_VERSION, CHANNELS_1, CH0, FS, TRIAL_LEN
+from .constants import (BANDS, BASELINE, CACHE_VERSION, CHANNELS_1, CH0,
+                        DREAMER_CHANNELS, FS, TRIAL_LEN)
 from .features import band_masks, trial_features
 
 
 def source_files(args):
+    if getattr(args, "dataset", "deap") == "dreamer":
+        from .dreamer import source_file
+        return [source_file(args.data_dir)]
     files = sorted(Path(args.data_dir).glob("s[0-9][0-9].dat"))
     if args.max_subjects:
         files = files[:args.max_subjects]
@@ -24,7 +28,9 @@ def source_files(args):
 
 def feature_manifest(args, files):
     """Include source identity so changed/replaced data cannot reuse an old cache."""
-    return {
+    dataset = getattr(args, "dataset", "deap")
+    manifest = {
+        "dataset": dataset,
         "cache_version": CACHE_VERSION, "window_samples": args.window_samples,
         "stride": args.stride or args.window_samples,
         "nfft": args.nfft or max(args.window_samples, 128), "taper": args.taper,
@@ -34,6 +40,47 @@ def feature_manifest(args, files):
         "files": [{"path": str(f.resolve()), "size": f.stat().st_size,
                    "mtime_ns": f.stat().st_mtime_ns} for f in files],
     }
+    if dataset == "dreamer":
+        manifest.update({
+            "channels_1based": list(range(1, 15)), "channel_names": list(DREAMER_CHANNELS),
+            "baseline_samples": 0, "baseline_policy": "use separate EEG.stimuli only; no correction",
+            "max_subjects": args.max_subjects,
+            "last_stimulus_samples": round(getattr(args, "dreamer_last_seconds", 0.0) * FS),
+        })
+    return manifest
+
+
+def feature_cache_path(args, manifest):
+    if not args.cache_dir:
+        return None
+    Path(args.cache_dir).mkdir(parents=True, exist_ok=True)
+    key = json.dumps(manifest, sort_keys=True)
+    return Path(args.cache_dir) / (hashlib.sha256(key.encode()).hexdigest()[:24] + ".npz")
+
+
+def read_feature_cache(cache):
+    if cache is None or not cache.exists():
+        return None
+    with np.load(cache, allow_pickle=False) as z:
+        arrays = tuple(z[k] for k in ("X", "R", "S", "T"))
+    if not all(np.isfinite(a).all() for a in arrays):
+        raise ValueError(f"Non-finite values in cache {cache}; remove it and retry")
+    print("Loaded cached features", cache, flush=True)
+    return arrays
+
+
+def write_feature_cache(cache, X, R, S, T):
+    if cache is not None:
+        tmp = cache.with_suffix(".tmp.npz")
+        np.savez_compressed(tmp, X=X, R=R, S=S, T=T)
+        tmp.replace(cache)
+
+
+def load_data(args):
+    if getattr(args, "dataset", "deap") == "dreamer":
+        from .dreamer import load_dreamer
+        return load_dreamer(args)
+    return load_deap(args)
 
 
 def load_deap(args):
@@ -41,18 +88,10 @@ def load_deap(args):
     manifest = feature_manifest(args, files)
     nfft = manifest["nfft"]
     masks = band_masks(nfft)
-    key = json.dumps(manifest, sort_keys=True)
-    cache = None
-    if args.cache_dir:
-        Path(args.cache_dir).mkdir(parents=True, exist_ok=True)
-        cache = Path(args.cache_dir) / (hashlib.sha256(key.encode()).hexdigest()[:24] + ".npz")
-        if cache.exists():
-            with np.load(cache, allow_pickle=False) as z:
-                arrays = tuple(z[k] for k in ("X", "R", "S", "T"))
-            if not all(np.isfinite(a).all() for a in arrays):
-                raise ValueError(f"Non-finite values in cache {cache}; remove it and retry")
-            print("Loaded cached features", cache, flush=True)
-            return arrays
+    cache = feature_cache_path(args, manifest)
+    cached = read_feature_cache(cache)
+    if cached is not None:
+        return cached
     # Preallocate instead of retaining and concatenating millions of small windows.
     stride_ = args.stride or args.window_samples
     n_win = (TRIAL_LEN - args.window_samples) // stride_ + 1
@@ -85,10 +124,7 @@ def load_deap(args):
             offset += len(f)
         del obj, data, rat
         print("Processed", fp.name, flush=True)
-    if cache:
-        tmp = cache.with_suffix(".tmp.npz")
-        np.savez_compressed(tmp, X=X, R=R, S=S, T=T)
-        tmp.replace(cache)
+    write_feature_cache(cache, X, R, S, T)
     return X, R, S, T
 
 
