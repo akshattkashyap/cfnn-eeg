@@ -1,0 +1,54 @@
+{
+  "measured_source": "User-supplied completed DEAP HTSK 32-rule W128 run; confusion matrices",
+  "dataset": "deap",
+  "split": "random",
+  "rules": 32,
+  "window_samples": 128,
+  "measured_results": {
+    "valence": {
+      "confusion_matrix": [
+        [
+          4410,
+          4029
+        ],
+        [
+          3014,
+          7747
+        ]
+      ],
+      "balanced_accuracy_percent": 62.12,
+      "best_epoch": 40,
+      "window_accuracy_percent": 63.317708333333336
+    },
+    "arousal": {
+      "confusion_matrix": [
+        [
+          4368,
+          3525
+        ],
+        [
+          2823,
+          8484
+        ]
+      ],
+      "balanced_accuracy_percent": 65.19,
+      "best_epoch": 29,
+      "window_accuracy_percent": 66.9375
+    }
+  },
+  "hypothetical_plus_8pp_results_percent": {
+    "valence": 71.31770833333334,
+    "arousal": 74.9375
+  },
+  "adjustment": {
+    "percentage_points": 8,
+    "status": "hypothetical arithmetic illustration",
+    "measured_improvement": false,
+    "training_performed_for_this_diagram": false
+  },
+  "dreamer": {
+    "rules_in_example": 16,
+    "measured_results": null,
+    "status": "pending"
+  }
+}
